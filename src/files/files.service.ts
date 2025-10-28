@@ -8,7 +8,7 @@ export class FilesService {
 
   constructor(private s3Service: S3Service) {}
 
-  async uploadFile(file: any, user: any) {
+  async uploadFile(file: any, user: any, customFolder?: string) {
     try {
       const buffer = await file.toBuffer();
       const filename = file.filename;
@@ -18,12 +18,19 @@ export class FilesService {
       const ext = path.extname(filename);
       const uniqueFilename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
 
-      // Определяем папку в зависимости от типа файла
-      let folder = 'documents';
-      if (mimetype.startsWith('image/')) {
-        folder = 'images';
-      } else if (mimetype.startsWith('audio/')) {
-        folder = 'recordings';
+      // Определяем папку
+      let folder: string;
+      if (customFolder) {
+        // Используем кастомную папку, если она передана
+        folder = customFolder;
+      } else {
+        // Определяем папку в зависимости от типа файла
+        folder = 'documents';
+        if (mimetype.startsWith('image/')) {
+          folder = 'images';
+        } else if (mimetype.startsWith('audio/')) {
+          folder = 'recordings';
+        }
       }
 
       const key = `${folder}/${uniqueFilename}`;
@@ -87,6 +94,13 @@ export class FilesService {
     };
   }
 }
+
+
+
+
+
+
+
 
 
 

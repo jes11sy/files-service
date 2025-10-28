@@ -25,9 +25,9 @@ export class FilesController {
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload file to S3' })
-  async uploadFile(@Request() req: any) {
+  async uploadFile(@Request() req: any, @Query('folder') folder?: string) {
     const data = await req.file();
-    const result = await this.filesService.uploadFile(data, req.user);
+    const result = await this.filesService.uploadFile(data, req.user, folder);
     return result;
   }
 
@@ -65,6 +65,13 @@ export class FilesController {
     return this.filesService.getDownloadUrl(key);
   }
 }
+
+
+
+
+
+
+
 
 
 
