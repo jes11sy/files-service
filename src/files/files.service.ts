@@ -1,28 +1,61 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { S3Service } from './s3.service';
+import { FileValidator } from './utils/file-validator';
 import * as path from 'path';
 
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
 
-  constructor(private s3Service: S3Service) {}
+  constructor(
+    private s3Service: S3Service,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
 
   async uploadFile(file: any, user: any, customFolder?: string) {
+    const startTime = Date.now();
+    const metadata = {
+      userId: user.userId,
+      userRole: user.role,
+      userLogin: user.login,
+      filename: file.filename,
+      mimetype: file.mimetype,
+      ip: user.ip || 'unknown',
+      userAgent: user.userAgent || 'unknown',
+    };
+
     try {
       const buffer = await file.toBuffer();
-      const filename = file.filename;
-      const mimetype = file.mimetype;
+      const { filename, mimetype } = file;
 
-      // Генерируем уникальное имя файла
-      const ext = path.extname(filename);
-      const uniqueFilename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
+      this.logger.log({
+        action: 'FILE_UPLOAD_START',
+        ...metadata,
+        size: buffer.length,
+      });
 
-      // Определяем папку
+      // 1. Валидация MIME типа
+      FileValidator.validateMimeType(mimetype);
+
+      // 2. Валидация расширения
+      FileValidator.validateExtension(filename);
+
+      // 3. Валидация размера
+      FileValidator.validateFileSize(buffer.length);
+
+      // 4. Проверка сигнатуры файла (magic numbers)
+      await FileValidator.verifyFileSignature(buffer, mimetype);
+
+      // 5. Генерируем безопасное имя файла
+      const uniqueFilename = FileValidator.generateSafeFilename(filename);
+
+      // 6. Определяем папку
       let folder: string;
       if (customFolder) {
-        // Используем кастомную папку, если она передана
-        folder = customFolder;
+        // Санитизируем кастомную папку
+        folder = FileValidator.sanitizeFileKey(customFolder);
       } else {
         // Определяем папку в зависимости от типа файла
         folder = 'documents';
@@ -35,22 +68,47 @@ export class FilesService {
 
       const key = `${folder}/${uniqueFilename}`;
 
-      // Загружаем в S3
+      // 7. Загружаем в S3 (с поддержкой streaming)
       await this.s3Service.uploadFile(key, buffer, mimetype);
 
-      this.logger.log(`File uploaded: ${key} by user ${user.userId}`);
+      // 8. Получаем URL для скачивания
+      const url = await this.s3Service.getDownloadUrl(key);
+
+      const duration = Date.now() - startTime;
+
+      this.logger.log({
+        action: 'FILE_UPLOAD_SUCCESS',
+        ...metadata,
+        key,
+        size: buffer.length,
+        duration,
+      });
 
       return {
         success: true,
         message: 'File uploaded successfully',
         data: {
           key,
-          filename,
-          url: await this.s3Service.getDownloadUrl(key),
+          filename: uniqueFilename,
+          originalFilename: filename,
+          url,
+          size: buffer.length,
+          mimetype,
+          folder,
         },
       };
     } catch (error) {
-      this.logger.error(`Upload error: ${error.message}`, error.stack);
+      const duration = Date.now() - startTime;
+
+      this.logger.error({
+        action: 'FILE_UPLOAD_FAILED',
+        ...metadata,
+        error: error.message,
+        errorName: error.name,
+        duration,
+        stack: error.stack,
+      });
+
       throw error;
     }
   }
@@ -73,25 +131,91 @@ export class FilesService {
   }
 
   async getFile(key: string) {
-    return this.s3Service.getFileStream(key);
+    try {
+      // Санитизация ключа для защиты от Path Traversal
+      const sanitizedKey = FileValidator.sanitizeFileKey(key);
+
+      this.logger.log(`Getting file stream for: ${sanitizedKey}`);
+      return await this.s3Service.getFileStream(sanitizedKey);
+    } catch (error) {
+      this.logger.error({
+        action: 'FILE_GET_FAILED',
+        key,
+        error: error.message,
+      });
+      throw error;
+    }
   }
 
   async deleteFile(key: string) {
-    await this.s3Service.deleteFile(key);
+    try {
+      // Санитизация ключа
+      const sanitizedKey = FileValidator.sanitizeFileKey(key);
 
-    return {
-      success: true,
-      message: 'File deleted successfully',
-    };
+      await this.s3Service.deleteFile(sanitizedKey);
+
+      // Удаляем из кеша, если там есть
+      await this.cacheManager.del(`presigned:${sanitizedKey}`);
+
+      this.logger.log({
+        action: 'FILE_DELETE_SUCCESS',
+        key: sanitizedKey,
+      });
+
+      return {
+        success: true,
+        message: 'File deleted successfully',
+      };
+    } catch (error) {
+      this.logger.error({
+        action: 'FILE_DELETE_FAILED',
+        key,
+        error: error.message,
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Получение download URL с кешированием
+   */
   async getDownloadUrl(key: string) {
-    const url = await this.s3Service.getDownloadUrl(key);
+    try {
+      // Санитизация ключа
+      const sanitizedKey = FileValidator.sanitizeFileKey(key);
+      const cacheKey = `presigned:${sanitizedKey}`;
 
-    return {
-      success: true,
-      data: { url },
-    };
+      // Проверяем кеш
+      let url = await this.cacheManager.get<string>(cacheKey);
+
+      if (url) {
+        this.logger.debug(`Cache hit for download URL: ${sanitizedKey}`);
+        return {
+          success: true,
+          data: { url, cached: true },
+        };
+      }
+
+      // Генерируем новый URL
+      url = await this.s3Service.getDownloadUrl(sanitizedKey);
+
+      // Кешируем на 50 минут (URL действителен 60 минут)
+      await this.cacheManager.set(cacheKey, url, 3000000); // 50 минут в миллисекундах
+
+      this.logger.debug(`Generated and cached download URL: ${sanitizedKey}`);
+
+      return {
+        success: true,
+        data: { url, cached: false },
+      };
+    } catch (error) {
+      this.logger.error({
+        action: 'GET_DOWNLOAD_URL_FAILED',
+        key,
+        error: error.message,
+      });
+      throw error;
+    }
   }
 }
 
