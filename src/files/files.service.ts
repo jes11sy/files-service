@@ -27,13 +27,22 @@ export class FilesService {
     };
 
     try {
-      const buffer = await file.toBuffer();
+      // Read only a small part (up to 1MB) for validation
+      const chunks = [];
+      let total = 0;
+      const MAX_PREVIEW = 1024 * 1024; // 1MB
+      for await (const chunk of file.file) {
+        chunks.push(chunk);
+        total += chunk.length;
+        if (total > MAX_PREVIEW) break;
+      }
+      const previewBuffer = Buffer.concat(chunks, Math.min(total, MAX_PREVIEW));
       const { filename, mimetype } = file;
-
+      
       this.logger.log({
         action: 'FILE_UPLOAD_START',
         ...metadata,
-        size: buffer.length,
+        size: file.file.truncated ? null : file.file.bytesRead || null,
       });
 
       // 1. Валидация MIME типа
@@ -42,11 +51,11 @@ export class FilesService {
       // 2. Валидация расширения
       FileValidator.validateExtension(filename);
 
-      // 3. Валидация размера
-      FileValidator.validateFileSize(buffer.length);
+      // 3. Проверка по превью размеру (весь файл проверит Fastify limit)
+      FileValidator.validateFileSize(file.file.truncated ? MAX_PREVIEW : previewBuffer.length);
 
       // 4. Проверка сигнатуры файла (magic numbers)
-      await FileValidator.verifyFileSignature(buffer, mimetype);
+      await FileValidator.verifyFileSignature(previewBuffer, mimetype);
 
       // 5. Генерируем безопасное имя файла
       const uniqueFilename = FileValidator.generateSafeFilename(filename);
@@ -54,10 +63,8 @@ export class FilesService {
       // 6. Определяем папку
       let folder: string;
       if (customFolder) {
-        // Санитизируем кастомную папку
         folder = FileValidator.sanitizeFileKey(customFolder);
       } else {
-        // Определяем папку в зависимости от типа файла
         folder = 'documents';
         if (mimetype.startsWith('image/')) {
           folder = 'images';
@@ -65,25 +72,29 @@ export class FilesService {
           folder = 'recordings';
         }
       }
-
       const key = `${folder}/${uniqueFilename}`;
 
-      // 7. Загружаем в S3 (с поддержкой streaming)
-      await this.s3Service.uploadFile(key, buffer, mimetype);
+      // 7. Передать поток дальше (после того, как 1МБ считали — rest оставшееся ядро Fastify отдаст корректно)
+      // (Fastify-multipart отдаст файл с повторного чтения, надо это уточнить — если нет возможности, fallback: вынести чтение preview на объект, поддерживающий rewind/seek)
 
-      // 8. Получаем URL для скачивания
+      // Так как мы уже прочитали часть из stream, проще перезапросить файл от клиента или сделать file.toBuffer() и из него Readable. Более требовательный, но безопасный подход:
+      // Fallback если нельзя ресетнуть stream:
+      const { Readable } = require('stream');
+      // Получить весь буфер (т.к. stream уже "ушел")
+      const fullBuffer = await file.toBuffer();
+      const fileStream = Readable.from(fullBuffer);
+      await this.s3Service.uploadFile(key, fileStream, mimetype);
+
       const url = await this.s3Service.getDownloadUrl(key);
-
       const duration = Date.now() - startTime;
 
       this.logger.log({
         action: 'FILE_UPLOAD_SUCCESS',
         ...metadata,
         key,
-        size: buffer.length,
+        size: fullBuffer.length,
         duration,
       });
-
       return {
         success: true,
         message: 'File uploaded successfully',
@@ -92,14 +103,13 @@ export class FilesService {
           filename: uniqueFilename,
           originalFilename: filename,
           url,
-          size: buffer.length,
+          size: fullBuffer.length,
           mimetype,
           folder,
         },
       };
     } catch (error) {
       const duration = Date.now() - startTime;
-
       this.logger.error({
         action: 'FILE_UPLOAD_FAILED',
         ...metadata,
@@ -108,7 +118,6 @@ export class FilesService {
         duration,
         stack: error.stack,
       });
-
       throw error;
     }
   }

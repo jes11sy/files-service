@@ -100,27 +100,25 @@ export class S3Service implements OnModuleInit {
    */
   async uploadFile(
     key: string,
-    data: Buffer | NodeJS.ReadableStream,
+    stream: NodeJS.ReadableStream,
     contentType: string,
   ): Promise<void> {
     try {
       const startTime = Date.now();
 
-      // Для больших файлов используем multipart upload
       const upload = new Upload({
         client: this.s3Client,
         params: {
           Bucket: this.bucketName,
           Key: key,
-          Body: data,
+          Body: stream,
           ContentType: contentType,
         },
-        queueSize: 4, // Параллельные загрузки частей
-        partSize: 5 * 1024 * 1024, // 5MB части
+        queueSize: 4,
+        partSize: 5 * 1024 * 1024,
         leavePartsOnError: false,
       });
 
-      // Опционально: отслеживание прогресса
       upload.on('httpUploadProgress', (progress) => {
         if (progress.loaded && progress.total) {
           const percent = Math.round((progress.loaded / progress.total) * 100);
