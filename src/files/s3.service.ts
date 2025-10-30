@@ -9,6 +9,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NodeHttpHandler } from '@aws-sdk/node-http-handler';
 import { Upload } from '@aws-sdk/lib-storage';
+import { Readable } from 'stream';
 import * as https from 'https';
 
 @Injectable()
@@ -100,7 +101,7 @@ export class S3Service implements OnModuleInit {
    */
   async uploadFile(
     key: string,
-    stream: NodeJS.ReadableStream,
+    stream: Readable,
     contentType: string,
   ): Promise<void> {
     try {
@@ -146,7 +147,7 @@ export class S3Service implements OnModuleInit {
   /**
    * Получение файла как stream
    */
-  async getFileStream(key: string): Promise<NodeJS.ReadableStream> {
+  async getFileStream(key: string): Promise<Readable> {
     try {
       const command = new GetObjectCommand({
         Bucket: this.bucketName,
@@ -155,7 +156,7 @@ export class S3Service implements OnModuleInit {
 
       const response = await this.s3Client.send(command);
       this.logger.log(`File stream retrieved: ${key}`);
-      return response.Body as NodeJS.ReadableStream;
+      return response.Body as Readable;
     } catch (error) {
       this.logger.error(`Failed to get file stream ${key}: ${error.message}`);
       throw this.handleS3Error(error, 'read');
