@@ -1,4 +1,4 @@
-import { IsString, Matches, MaxLength } from 'class-validator';
+import { IsString, Matches, MaxLength, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class FileKeyDto {
@@ -18,7 +18,9 @@ export class FileQueryDto {
   @ApiProperty({
     description: 'Filename for upload',
     example: 'document.pdf',
+    required: false,
   })
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   filename?: string;
@@ -26,7 +28,9 @@ export class FileQueryDto {
   @ApiProperty({
     description: 'File type/folder',
     example: 'documents',
+    required: false,
   })
+  @IsOptional()
   @IsString()
   @Matches(/^[a-zA-Z0-9\-_]+$/, {
     message: 'Invalid folder name',
@@ -35,8 +39,10 @@ export class FileQueryDto {
 
   @ApiProperty({
     description: 'Custom folder path',
-    example: 'user-uploads',
+    example: 'director/orders/bso_doc',
+    required: false,
   })
+  @IsOptional()
   @IsString()
   @Matches(/^[a-zA-Z0-9\-_\/]+$/, {
     message: 'Invalid folder path',
