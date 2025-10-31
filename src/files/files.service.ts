@@ -27,22 +27,11 @@ export class FilesService {
     };
 
     try {
-      // Read only a small part (up to 1MB) for validation
-      const chunks = [];
-      let total = 0;
-      const MAX_PREVIEW = 1024 * 1024; // 1MB
-      for await (const chunk of file.file) {
-        chunks.push(chunk);
-        total += chunk.length;
-        if (total > MAX_PREVIEW) break;
-      }
-      const previewBuffer = Buffer.concat(chunks, Math.min(total, MAX_PREVIEW));
       const { filename, mimetype } = file;
       
       this.logger.log({
         action: 'FILE_UPLOAD_START',
         ...metadata,
-        size: file.file.truncated ? null : file.file.bytesRead || null,
       });
 
       // 1. Валидация MIME типа
@@ -51,16 +40,20 @@ export class FilesService {
       // 2. Валидация расширения
       FileValidator.validateExtension(filename);
 
-      // 3. Проверка по превью размеру (весь файл проверит Fastify limit)
-      FileValidator.validateFileSize(file.file.truncated ? MAX_PREVIEW : previewBuffer.length);
+      // 3. Читаем весь файл в буфер ДО валидации сигнатуры
+      const fullBuffer = await file.toBuffer();
+      
+      // 4. Проверка размера файла
+      FileValidator.validateFileSize(fullBuffer.length);
 
-      // 4. Проверка сигнатуры файла (magic numbers)
+      // 5. Проверка сигнатуры файла (magic numbers) - используем первые байты
+      const previewBuffer = fullBuffer.slice(0, Math.min(fullBuffer.length, 1024 * 1024));
       await FileValidator.verifyFileSignature(previewBuffer, mimetype);
 
-      // 5. Генерируем безопасное имя файла
+      // 6. Генерируем безопасное имя файла
       const uniqueFilename = FileValidator.generateSafeFilename(filename);
 
-      // 6. Определяем папку
+      // 7. Определяем папку
       let folder: string;
       if (customFolder) {
         folder = FileValidator.sanitizeFileKey(customFolder);
@@ -74,14 +67,8 @@ export class FilesService {
       }
       const key = `${folder}/${uniqueFilename}`;
 
-      // 7. Передать поток дальше (после того, как 1МБ считали — rest оставшееся ядро Fastify отдаст корректно)
-      // (Fastify-multipart отдаст файл с повторного чтения, надо это уточнить — если нет возможности, fallback: вынести чтение preview на объект, поддерживающий rewind/seek)
-
-      // Так как мы уже прочитали часть из stream, проще перезапросить файл от клиента или сделать file.toBuffer() и из него Readable. Более требовательный, но безопасный подход:
-      // Fallback если нельзя ресетнуть stream:
+      // 8. Создаем stream из буфера и загружаем в S3
       const { Readable } = require('stream');
-      // Получить весь буфер (т.к. stream уже "ушел")
-      const fullBuffer = await file.toBuffer();
       const fileStream = Readable.from(fullBuffer);
       await this.s3Service.uploadFile(key, fileStream, mimetype);
 
