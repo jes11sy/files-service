@@ -2,6 +2,8 @@ import { Module, Logger } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './jwt.strategy';
+import { RolesGuard } from './roles.guard';
+import { CookieJwtAuthGuard } from './guards/cookie-jwt-auth.guard';
 
 // Валидация JWT_SECRET при загрузке модуля
 const jwtSecret = process.env.JWT_SECRET;
@@ -22,8 +24,8 @@ if (jwtSecret.length < 32) {
       signOptions: { expiresIn: '1h' },
     }),
   ],
-  providers: [JwtStrategy],
-  exports: [JwtModule],
+  providers: [JwtStrategy, RolesGuard, CookieJwtAuthGuard],
+  exports: [JwtModule, RolesGuard, CookieJwtAuthGuard],
 })
 export class AuthModule {
   private readonly logger = new Logger(AuthModule.name);

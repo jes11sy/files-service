@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
-import { AuthGuard } from '@nestjs/passport';
+import { CookieJwtAuthGuard } from '../auth/guards/cookie-jwt-auth.guard';
 import { Throttle } from '@nestjs/throttler';
 import { FilesService } from './files.service';
 import { S3Service } from './s3.service';
@@ -48,7 +48,7 @@ export class FilesController {
   }
 
   @Post('upload')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(CookieJwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 загрузок в минуту
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
@@ -81,7 +81,7 @@ export class FilesController {
   }
 
   @Get('presigned-url')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(CookieJwtAuthGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } }) // 20 запросов в минуту
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get presigned URL for upload' })
@@ -97,7 +97,7 @@ export class FilesController {
   }
 
   @Get(':key')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(CookieJwtAuthGuard)
   @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 запросов в минуту
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get file from S3 (stream)' })
@@ -112,7 +112,7 @@ export class FilesController {
   }
 
   @Delete(':key')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @UseGuards(CookieJwtAuthGuard, RolesGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 удалений в минуту
   @ApiBearerAuth()
   @Roles(UserRole.DIRECTOR, UserRole.CALLCENTRE_ADMIN)
@@ -129,7 +129,7 @@ export class FilesController {
   }
 
   @Get('download/:key')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(CookieJwtAuthGuard)
   @Throttle({ default: { limit: 50, ttl: 60000 } }) // 50 запросов в минуту
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get download URL for file (cached)' })
