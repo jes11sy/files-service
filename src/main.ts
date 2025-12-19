@@ -21,6 +21,12 @@ async function bootstrap() {
 
   const logger = new Logger('FilesService');
 
+  // 🍪 РЕГИСТРАЦИЯ COOKIE PLUGIN (до CORS!)
+  await app.register(require('@fastify/cookie'), {
+    secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
+  });
+  logger.log('✅ Cookie plugin registered');
+
   // CORS конфигурация с безопасными настройками
   await app.register(require('@fastify/cors'), {
     origin:
@@ -30,7 +36,13 @@ async function bootstrap() {
       ],
     credentials: true,
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Use-Cookies', // 🍪 Поддержка cookie mode
+    ],
   });
 
   // Helmet для безопасности с включенным CSP
