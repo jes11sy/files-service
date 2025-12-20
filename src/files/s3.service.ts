@@ -212,8 +212,20 @@ export class S3Service implements OnModuleInit {
         Key: key,
       });
 
-      const url = await getSignedUrl(this.s3Client, command, { expiresIn });
-      this.logger.debug(`Generated download URL for ${key}`);
+      // AWS SDK v3 bug: getSignedUrl игнорирует forcePathStyle из клиента
+      // Нужно создавать временный клиент с явным указанием usePathStyle
+      const signingClient = new S3Client({
+        region: process.env.S3_REGION,
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID,
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        },
+        endpoint: process.env.S3_ENDPOINT,
+        forcePathStyle: true, // Явно включаем path-style
+      });
+
+      const url = await getSignedUrl(signingClient, command, { expiresIn });
+      this.logger.debug(`Generated download URL for ${key}: ${url}`);
       return url;
     } catch (error) {
       this.logger.error(
