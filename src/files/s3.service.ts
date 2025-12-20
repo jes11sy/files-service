@@ -191,7 +191,16 @@ export class S3Service implements OnModuleInit {
         Key: key,
       });
 
-      const url = await getSignedUrl(this.s3Client, command, { expiresIn });
+      let url = await getSignedUrl(this.s3Client, command, { expiresIn });
+      
+      // WORKAROUND: Конвертируем virtual-hosted-style в path-style для Timeweb
+      if (process.env.S3_ENDPOINT && url.includes(`${this.bucketName}.s3.timeweb.com`)) {
+        url = url.replace(
+          `${this.bucketName}.s3.timeweb.com`,
+          `s3.timeweb.com/${this.bucketName}`
+        );
+      }
+      
       this.logger.debug(`Generated upload URL for ${key}`);
       return url;
     } catch (error) {
@@ -213,7 +222,7 @@ export class S3Service implements OnModuleInit {
       });
 
       // AWS SDK v3 bug: getSignedUrl игнорирует forcePathStyle из клиента
-      // Нужно создавать временный клиент с явным указанием usePathStyle
+      // Для Timeweb и других S3-совместимых хранилищ используем forcePathStyle
       const signingClient = new S3Client({
         region: process.env.S3_REGION,
         credentials: {
@@ -221,10 +230,22 @@ export class S3Service implements OnModuleInit {
           secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
         },
         endpoint: process.env.S3_ENDPOINT,
-        forcePathStyle: true, // Явно включаем path-style
+        forcePathStyle: true, // CRITICAL для Timeweb S3
       });
 
-      const url = await getSignedUrl(signingClient, command, { expiresIn });
+      let url = await getSignedUrl(signingClient, command, { expiresIn });
+      
+      // WORKAROUND: AWS SDK иногда генерирует virtual-hosted-style URL даже с forcePathStyle
+      // Принудительно конвертируем в path-style для Timeweb
+      if (process.env.S3_ENDPOINT && url.includes(`${this.bucketName}.s3.timeweb.com`)) {
+        this.logger.warn(`⚠️ SDK generated virtual-hosted-style URL, converting to path-style`);
+        url = url.replace(
+          `${this.bucketName}.s3.timeweb.com`,
+          `s3.timeweb.com/${this.bucketName}`
+        );
+        this.logger.debug(`Converted URL: ${url}`);
+      }
+      
       this.logger.debug(`Generated download URL for ${key}: ${url}`);
       return url;
     } catch (error) {
