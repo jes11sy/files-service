@@ -1,6 +1,6 @@
 import { Injectable, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { CookieConfig } from '../../config/cookie.config';
+import { CookieConfig, getCookieName } from '../../config/cookie.config';
 import { FastifyRequest } from 'fastify';
 
 /**
