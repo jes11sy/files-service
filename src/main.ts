@@ -35,14 +35,18 @@ async function bootstrap() {
         'http://localhost:3001',
       ],
     credentials: true,
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // ✅ Добавлены PUT и PATCH
     allowedHeaders: [
       'Content-Type',
       'Authorization',
       'Accept',
       'Origin',
       'X-Use-Cookies', // 🍪 Поддержка cookie mode
+      'Cookie', // ✅ Добавлен для httpOnly cookies
     ],
+    exposedHeaders: ['Set-Cookie'], // ✅ Разрешаем браузеру видеть Set-Cookie
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   // Helmet для безопасности с включенным CSP

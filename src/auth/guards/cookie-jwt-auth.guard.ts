@@ -17,6 +17,12 @@ export class CookieJwtAuthGuard extends AuthGuard('jwt') {
   canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     
+    // Получаем origin для определения правильного имени cookie
+    const origin = request.headers.origin || request.headers.referer;
+    const cookieName = getCookieName(CookieConfig.ACCESS_TOKEN_NAME, origin);
+    
+    this.logger.debug(`🍪 Looking for cookie: ${cookieName} (origin: ${origin})`);
+    
     // Пытаемся получить токен из cookies
     let cookieToken: string | null = null;
     
@@ -26,7 +32,7 @@ export class CookieJwtAuthGuard extends AuthGuard('jwt') {
     
     if (cookiesSource && CookieConfig.ENABLE_COOKIE_SIGNING && unsignCookieFn) {
       // Пытаемся получить подписанный cookie
-      const signedCookie = cookiesSource[CookieConfig.ACCESS_TOKEN_NAME];
+      const signedCookie = cookiesSource[cookieName]; // FIX: используем правильное имя
       if (signedCookie) {
         const unsigned = unsignCookieFn(signedCookie, CookieConfig.COOKIE_SECRET);
         cookieToken = unsigned?.valid ? unsigned.value : null;
@@ -38,7 +44,8 @@ export class CookieJwtAuthGuard extends AuthGuard('jwt') {
       }
     } else if (cookiesSource) {
       // Неподписанный cookie
-      cookieToken = cookiesSource[CookieConfig.ACCESS_TOKEN_NAME];
+      cookieToken = cookiesSource[cookieName]; // FIX: используем правильное имя
+      this.logger.debug(`🍪 Found cookie token: ${cookieToken ? 'YES' : 'NO'}`);
     }
     
     // Если токен найден в cookie и нет Authorization header, добавляем его
