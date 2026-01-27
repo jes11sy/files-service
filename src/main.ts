@@ -7,7 +7,23 @@ import {
 } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 
+// ✅ FIX: ESM dynamic imports для Fastify plugins (вместо synchronous require)
+import fastifyCookie from '@fastify/cookie';
+import fastifyCors from '@fastify/cors';
+import fastifyHelmet from '@fastify/helmet';
+import fastifyCompress from '@fastify/compress';
+import fastifyMultipart from '@fastify/multipart';
+
 async function bootstrap() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // ✅ FIX #86: Фильтрация уровней логов в production
+  // Production: только log, error, warn (без debug, verbose)
+  // Development: все уровни для отладки
+  const logLevels: ('log' | 'error' | 'warn' | 'debug' | 'verbose')[] = isProduction
+    ? ['log', 'error', 'warn']
+    : ['log', 'error', 'warn', 'debug', 'verbose'];
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
@@ -17,18 +33,21 @@ async function bootstrap() {
       connectionTimeout: 60000,
       keepAliveTimeout: 65000,
     }),
+    {
+      logger: logLevels, // ✅ FIX #86: Применяем фильтрацию логов
+    },
   );
 
   const logger = new Logger('FilesService');
 
   // 🍪 РЕГИСТРАЦИЯ COOKIE PLUGIN (до CORS!)
-  await app.register(require('@fastify/cookie'), {
+  await app.register(fastifyCookie, {
     secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
   });
   logger.log('✅ Cookie plugin registered');
 
   // CORS конфигурация с безопасными настройками
-  await app.register(require('@fastify/cors'), {
+  await app.register(fastifyCors, {
     origin:
       process.env.CORS_ORIGIN?.split(',') || [
         'http://localhost:3000',
@@ -50,7 +69,7 @@ async function bootstrap() {
   });
 
   // Helmet для безопасности с включенным CSP
-  await app.register(require('@fastify/helmet'), {
+  await app.register(fastifyHelmet, {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -75,14 +94,14 @@ async function bootstrap() {
   });
 
   // Compression для лучшей производительности
-  await app.register(require('@fastify/compress'), {
+  await app.register(fastifyCompress, {
     global: true,
     threshold: 1024, // Минимальный размер для сжатия (1KB)
     encodings: ['gzip', 'deflate', 'br'], // Поддержка brotli
   });
 
   // Multipart для загрузки файлов
-  await app.register(require('@fastify/multipart'), {
+  await app.register(fastifyMultipart, {
     limits: {
       fileSize: 52428800, // 50MB максимум
       files: 1, // Один файл за раз

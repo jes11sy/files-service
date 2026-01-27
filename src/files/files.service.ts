@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
+import { Readable } from 'stream'; // ✅ FIX: ESM import вместо synchronous require
 import { S3Service } from './s3.service';
 import { FileValidator } from './utils/file-validator';
 import * as path from 'path';
@@ -68,7 +69,7 @@ export class FilesService {
       const key = `${folder}/${uniqueFilename}`;
 
       // 8. Создаем stream из буфера и загружаем в S3
-      const { Readable } = require('stream');
+      // ✅ FIX: Используем Readable из ESM import вместо synchronous require
       const fileStream = Readable.from(fullBuffer);
       await this.s3Service.uploadFile(key, fileStream, mimetype);
 

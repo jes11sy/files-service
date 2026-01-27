@@ -213,6 +213,7 @@ export class S3Service implements OnModuleInit {
 
   /**
    * Генерация presigned URL для скачивания
+   * ✅ FIX: Используем единый s3Client вместо создания нового клиента
    */
   async getDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
     try {
@@ -221,19 +222,9 @@ export class S3Service implements OnModuleInit {
         Key: key,
       });
 
-      // AWS SDK v3 bug: getSignedUrl игнорирует forcePathStyle из клиента
-      // Для Timeweb и других S3-совместимых хранилищ используем forcePathStyle
-      const signingClient = new S3Client({
-        region: process.env.S3_REGION,
-        credentials: {
-          accessKeyId: process.env.S3_ACCESS_KEY_ID,
-          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-        },
-        endpoint: process.env.S3_ENDPOINT,
-        forcePathStyle: true, // CRITICAL для Timeweb S3
-      });
-
-      let url = await getSignedUrl(signingClient, command, { expiresIn });
+      // ✅ FIX: Используем существующий this.s3Client вместо создания нового
+      // Это экономит память и переиспользует connection pool
+      let url = await getSignedUrl(this.s3Client, command, { expiresIn });
       
       // WORKAROUND: AWS SDK иногда генерирует virtual-hosted-style URL даже с forcePathStyle
       // Принудительно конвертируем в path-style для Timeweb
