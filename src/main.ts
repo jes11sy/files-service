@@ -84,6 +84,7 @@ async function bootstrap() {
       },
     },
     crossOriginEmbedderPolicy: false,
+    frameguard: { action: 'deny' }, // X-Frame-Options: DENY
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
